@@ -1,37 +1,70 @@
 import React, { useRef } from 'react';
-import { StyleSheet, View, PanResponder, Animated } from 'react-native';
+import { StyleSheet, Animated, PanResponder } from 'react-native';
 import { Canvas, Circle, Group, RadialGradient, vec, BlurMask } from '@shopify/react-native-skia';
 
 type Props = {
+  id: string;
   size?: number;
-  startX?: number;
-  startY?: number;
+  startX?: number;   
+  startY?: number;   
+  margin?: number;   
+  onChange?: (id: string, x: number, y: number) => void;
+  canMoveTo?: (id: string, x: number, y: number) => boolean;
 };
 
-export default function DraggableSkiaBubbleNoReanimated({
+export default function Bubble({
+  id,
   size = 140,
   startX = 80,
   startY = 200,
+  margin = 6,
+  onChange,
+  canMoveTo,
 }: Props) {
   const half = size / 2;
+
+  // We store the "base" absolute offset separately so we can compute candidates quickly.
+  const baseX = useRef(startX);
+  const baseY = useRef(startY);
+
   const translate = useRef(new Animated.ValueXY({ x: startX, y: startY })).current;
+
+  const tryMoveTo = (candX: number, candY: number) => {
+    // Ask parent if new position is allowed; if not provided, allow.
+    const allowed = canMoveTo ? canMoveTo(id, candX, candY) : true;
+    if (allowed) {
+      translate.setValue({ x: candX, y: candY });
+      if (onChange) onChange(id, candX, candY);
+      return true;
+    }
+    return false;
+  };
 
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onPanResponderGrant: () => {
-        translate.setOffset({ x: (translate as any).x._value, y: (translate as any).y._value });
-        translate.setValue({ x: 0, y: 0 });
+        // Nothing special; we move in absolute coords directly.
       },
-      onPanResponderMove: Animated.event(
-        [null, { dx: translate.x, dy: translate.y }],
-        { useNativeDriver: false }
-      ),
-      onPanResponderRelease: () => {
-        translate.flattenOffset();
-        // small settle animation
+      onPanResponderMove: (_, gesture) => {
+        const candX = baseX.current + gesture.dx;
+        const candY = baseY.current + gesture.dy;
+        // Only update if no overlap
+        tryMoveTo(candX, candY);
+      },
+      onPanResponderRelease: (_, gesture) => {
+        // Finalize position; if last move was blocked, keep previous allowed pos
+        const candX = baseX.current + gesture.dx;
+        const candY = baseY.current + gesture.dy;
+        const moved = tryMoveTo(candX, candY);
+        // Update base to the actually shown position
+        const { x, y } = (translate as any).__getValue();
+        baseX.current = moved ? candX : x;
+        baseY.current = moved ? candY : y;
+
+        // small settle (optional)
         Animated.spring(translate, {
-          toValue: { x: (translate as any).x._value, y: (translate as any).y._value },
+          toValue: { x: baseX.current, y: baseY.current },
           friction: 6,
           useNativeDriver: false,
         }).start();
@@ -44,8 +77,7 @@ export default function DraggableSkiaBubbleNoReanimated({
       {...panResponder.panHandlers}
       style={[
         styles.wrap,
-        { width: size, height: size },
-        { transform: [{ translateX: translate.x }, { translateY: translate.y }] },
+        { width: size, height: size, transform: [{ translateX: translate.x }, { translateY: translate.y }] },
       ]}
     >
       <Canvas style={{ width: size, height: size }}>
