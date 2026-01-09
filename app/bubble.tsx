@@ -15,6 +15,7 @@ type Props = {
   onDelete?: () => void;
   onDeleteButtonShow?: () => void; // Callback when delete button is shown
   hideDeleteButton?: boolean; // Parent can force hide the delete button
+  onTap?: () => void; // Callback when bubble is tapped (not dragged)
 };
 
 export default function Bubble({
@@ -30,6 +31,7 @@ export default function Bubble({
   onDelete,
   onDeleteButtonShow,
   hideDeleteButton = false,
+  onTap,
 }: Props) {
   const half = size / 2;
   const [showDeleteButton, setShowDeleteButton] = useState(false);
@@ -101,6 +103,14 @@ export default function Bubble({
         // If delete button is showing and user didn't move much, don't update position
         // This allows the delete button to be clickable
         if (isLongPressActive.current && Math.abs(gesture.dx) < 5 && Math.abs(gesture.dy) < 5) {
+          return;
+        }
+        
+        // Detect tap (no significant movement and no long press)
+        if (Math.abs(gesture.dx) < 5 && Math.abs(gesture.dy) < 5 && !isLongPressActive.current) {
+          if (onTap) {
+            onTap();
+          }
           return;
         }
         

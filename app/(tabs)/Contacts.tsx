@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ExpoContacts from 'expo-contacts';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, FlatList, Modal, PermissionsAndroid, Platform, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import CallLogs from 'react-native-call-log';
@@ -18,9 +18,11 @@ type BubbleState = {
   contactId: string;
   contactName: string;
   callDuration: number; // Total call duration in seconds
+  phoneNumber?: string; // Phone number for making calls
 };
 
 export default function Contacts() {
+  const router = useRouter();
   const { width, height } = Dimensions.get('window');
   const [bubbles, setBubbles] = useState<BubbleState[]>([]);
   const [allContacts, setAllContacts] = useState<ExpoContacts.Contact[]>([]);
@@ -81,6 +83,33 @@ export default function Contacts() {
       updateBubbleDurations(callLogs);
     }
   }, [callLogs, allContacts]);
+
+  // Restore phone numbers for bubbles when contacts are loaded
+  useEffect(() => {
+    if (allContacts.length > 0 && bubbles.length > 0) {
+      setBubbles(prev => {
+        let hasChanges = false;
+        const updated = prev.map(bubble => {
+          // If bubble already has phone number, keep it
+          if (bubble.phoneNumber) {
+            return bubble;
+          }
+          // Otherwise, try to find and restore from contacts
+          const contact = allContacts.find(c => (c as any).id === bubble.contactId);
+          if (contact && contact.phoneNumbers && contact.phoneNumbers.length > 0) {
+            hasChanges = true;
+            return {
+              ...bubble,
+              phoneNumber: contact.phoneNumbers[0].number,
+            };
+          }
+          return bubble;
+        });
+        // Only update state if there were actual changes
+        return hasChanges ? updated : prev;
+      });
+    }
+  }, [allContacts, bubbles.length]);
 
   const saveBubblesToStorage = async () => {
     try {
@@ -210,10 +239,16 @@ export default function Contacts() {
         if (contact) {
           const duration = findCallDurationForContact(contact, logs);
           const newSize = getBubbleSize(duration);
+          // Restore phone number from contact if missing
+          const phoneNumber = bubble.phoneNumber || 
+            (contact.phoneNumbers && contact.phoneNumbers.length > 0
+              ? contact.phoneNumbers[0].number
+              : undefined);
           return { 
             ...bubble, 
             callDuration: duration,
-            size: newSize // Update size based on new duration
+            size: newSize, // Update size based on new duration
+            phoneNumber: phoneNumber, // Restore phone number if missing
           };
         }
         return bubble;
@@ -276,6 +311,11 @@ export default function Contacts() {
     const contactId = (contact as any).id || `contact-${Date.now()}`;
     const bubbleId = `bubble-${contactId}-${Date.now()}`;
     
+    // Get the first available phone number
+    const phoneNumber = contact.phoneNumbers && contact.phoneNumbers.length > 0
+      ? contact.phoneNumbers[0].number
+      : undefined;
+    
     const newBubble: BubbleState = {
       id: bubbleId,
       size,
@@ -284,6 +324,7 @@ export default function Contacts() {
       contactId: contactId,
       contactName: contact.name || 'Unknown',
       callDuration: duration,
+      phoneNumber: phoneNumber,
     };
 
     setBubbles(prev => {
@@ -375,6 +416,21 @@ export default function Contacts() {
     // This prevents accidental hiding when the delete button first appears
     if (deleteButtonShowTimeRef.current && Date.now() - deleteButtonShowTimeRef.current > 100) {
       hideDeleteButton();
+    }
+  };
+
+  const handleBubbleTap = (contactId: string) => {
+    const bubble = bubbles.find(b => b.contactId === contactId);
+    if (bubble && bubble.phoneNumber) {
+      router.push({
+        pathname: '/makeacall',
+        params: {
+          contactName: bubble.contactName,
+          phoneNumber: bubble.phoneNumber,
+        },
+      });
+    } else {
+      Alert.alert('No Phone Number', 'This contact does not have a phone number.');
     }
   };
 
@@ -488,6 +544,7 @@ export default function Contacts() {
           onDelete={() => handleDeleteBubble(b.contactId)}
           onDeleteButtonShow={() => showDeleteButtonForBubble(b.id)}
           hideDeleteButton={activeDeleteBubbleId !== b.id}
+          onTap={() => handleBubbleTap(b.contactId)}
         />
       ))}
       
