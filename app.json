@@ -23,8 +23,7 @@
       "permissions": [
         "android.permission.READ_CONTACTS",
         "android.permission.WRITE_CONTACTS",
-        "android.permission.READ_CONTACTS",
-        "android.permission.WRITE_CONTACTS"
+        "android.permission.READ_CALL_LOG"
       ],
       "package": "com.anonymous.contactApp"
     },
