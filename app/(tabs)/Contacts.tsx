@@ -197,17 +197,12 @@ export default function Contacts() {
   };
 
   const updateBubbleDurations = (logs: any[]) => {
-    // Find max duration for normalization
-    const maxDuration = logs.length > 0
-      ? Math.max(...logs.map(log => log.duration || 0))
-      : 3600;
-    
     setBubbles(prev => {
       return prev.map(bubble => {
         const contact = allContacts.find(c => (c as any).id === bubble.contactId);
         if (contact) {
           const duration = findCallDurationForContact(contact, logs);
-          const newSize = getBubbleSize(duration, maxDuration);
+          const newSize = getBubbleSize(duration);
           return { 
             ...bubble, 
             callDuration: duration,
@@ -228,19 +223,24 @@ export default function Contacts() {
     };
   };
 
-  const getBubbleSize = (duration: number, maxDuration: number = 3600): number => {
-    const MIN_SIZE = 80;
-    const MAX_SIZE = 240;
+  const getBubbleSize = (duration: number): number => {
+    // Use percentage of screen width (vw equivalent)
+    const MIN_SIZE_PERCENT = 0.15; // 15% of screen width
+    const MAX_SIZE_PERCENT = 0.50; // 50% of screen width
+    
+    const MIN_SIZE = width * MIN_SIZE_PERCENT;
+    const MAX_SIZE = width * MAX_SIZE_PERCENT;
     
     if (duration === 0) return MIN_SIZE;
     
     // Convert duration from seconds to minutes
     const durationMinutes = duration / 60;
     
-    // Calculate size increase: 1 pixel per 20 minutes
-    // Formula: MIN_SIZE + (durationMinutes / 20)
-    // Cap at MAX_SIZE to prevent exceeding maximum
-    const calculatedSize = MIN_SIZE + (durationMinutes / 5);
+    // Calculate size increase: 0.5% of screen width per 10 minutes
+    // Example: On 400px wide screen, 0.5% = 2px per 10 minutes
+    // On 800px wide screen, 0.5% = 4px per 10 minutes
+    const sizeIncreasePercent = (durationMinutes / 10) * 0.005; // 0.5% per 10 minutes
+    const calculatedSize = MIN_SIZE + (width * sizeIncreasePercent);
     
     return Math.min(calculatedSize, MAX_SIZE);
   };
@@ -251,12 +251,7 @@ export default function Contacts() {
       ? findCallDurationForContact(contact, callLogs)
       : 0;
     
-    // Find max duration from all call logs to normalize
-    const maxDuration = callLogs.length > 0
-      ? Math.max(...callLogs.map(log => log.duration || 0))
-      : 3600; // Default max if no logs
-    
-    const size = getBubbleSize(duration, maxDuration);
+    const size = getBubbleSize(duration);
     const position = generateRandomPosition(size);
     const contactId = (contact as any).id || `contact-${Date.now()}`;
     const bubbleId = `bubble-${contactId}-${Date.now()}`;
