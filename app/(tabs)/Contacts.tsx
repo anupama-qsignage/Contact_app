@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ExpoContacts from 'expo-contacts';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Dimensions, FlatList, Modal, PermissionsAndroid, Platform, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Dimensions, FlatList, Modal, PermissionsAndroid, Platform, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import CallLogs from 'react-native-call-log';
 import Bubble from '../bubble';
 
@@ -31,6 +31,7 @@ export default function Contacts() {
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [contactToDelete, setContactToDelete] = useState<{ id: string; name: string } | null>(null);
   const [maxLimitModalVisible, setMaxLimitModalVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [activeDeleteBubbleId, setActiveDeleteBubbleId] = useState<string | null>(null);
   const deleteButtonTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deleteButtonShowTimeRef = useRef<number | null>(null);
@@ -415,6 +416,23 @@ export default function Contacts() {
 
   useMemo(() => syncMap(bubbles), [bubbles]);
 
+  // Filter contacts based on search query
+  const filteredContacts = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return allContacts;
+    }
+    const query = searchQuery.toLowerCase().trim();
+    return allContacts.filter(contact => {
+      const name = (contact.name || '').toLowerCase();
+      // Also search in phone numbers if available
+      const phoneNumbers = (contact.phoneNumbers || [])
+        .map(p => p.number || '')
+        .join(' ')
+        .toLowerCase();
+      return name.includes(query) || phoneNumbers.includes(query);
+    });
+  }, [allContacts, searchQuery]);
+
   const renderContactItem = ({ item }: { item: ExpoContacts.Contact }) => {
     const contactId = (item as any).id || `contact-${Date.now()}`;
     const isSelected = selectedContactIds.has(contactId);
@@ -490,12 +508,30 @@ export default function Contacts() {
             <Text style={styles.modalTitle}>Select Contacts</Text>
             <TouchableOpacity 
               style={styles.doneButton}
-              onPress={() => setShowModal(false)}
+              onPress={() => {
+                setShowModal(false);
+                setSearchQuery(''); // Clear search when closing modal
+              }}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               <Text style={styles.closeButton}>Done</Text>
             </TouchableOpacity>
           </View>
+
+          {/* Search Bar */}
+          {!loading && permissionStatus === 'granted' && (
+            <View style={styles.searchContainer}>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search contacts..."
+                placeholderTextColor="#999"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+          )}
           
           {loading ? (
             <View style={styles.center}>
@@ -513,10 +549,17 @@ export default function Contacts() {
             </View>
           ) : (
             <FlatList
-              data={allContacts}
+              data={filteredContacts}
               keyExtractor={(item) => (item as any).id || `contact-${Date.now()}`}
               renderItem={renderContactItem}
               contentContainerStyle={styles.listContent}
+              ListEmptyComponent={
+                searchQuery.trim() ? (
+                  <View style={styles.emptyContainer}>
+                    <Text style={styles.emptyText}>No contacts found</Text>
+                  </View>
+                ) : null
+              }
             />
           )}
         </View>
@@ -680,6 +723,32 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: '#4A90E2',
     fontWeight: '600',
+  },
+  searchContainer: {
+    padding: 15,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  searchInput: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 10,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#000',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  emptyContainer: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#999',
+    textAlign: 'center',
   },
   listContent: {
     padding: 10,
