@@ -1,6 +1,6 @@
+import { BlurMask, Canvas, Circle, Group, RadialGradient, vec } from '@shopify/react-native-skia';
 import React, { useRef } from 'react';
-import { StyleSheet, Animated, PanResponder } from 'react-native';
-import { Canvas, Circle, Group, RadialGradient, vec, BlurMask } from '@shopify/react-native-skia';
+import { Animated, PanResponder, StyleSheet, Text, View } from 'react-native';
 
 type Props = {
   id: string;
@@ -10,6 +10,7 @@ type Props = {
   margin?: number;   
   onChange?: (id: string, x: number, y: number) => void;
   canMoveTo?: (id: string, x: number, y: number) => boolean;
+  contactName?: string;
 };
 
 export default function Bubble({
@@ -20,6 +21,7 @@ export default function Bubble({
   margin = 6,
   onChange,
   canMoveTo,
+  contactName,
 }: Props) {
   const half = size / 2;
 
@@ -72,6 +74,18 @@ export default function Bubble({
     })
   ).current;
 
+  const getInitials = (name: string | undefined): string => {
+    if (!name) return '';
+    const parts = name.trim().split(' ');
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return name.substring(0, 2).toUpperCase();
+  };
+
+  const fontSize = size * 0.25;
+  const initials = contactName ? getInitials(contactName) : '';
+
   return (
     <Animated.View
       {...panResponder.panHandlers}
@@ -122,10 +136,42 @@ export default function Bubble({
           </Circle>
         </Group>
       </Canvas>
+      {contactName && (
+        <View style={[styles.textContainer, { width: size, height: size }]}>
+          <Text style={[styles.initials, { fontSize }]}>{initials}</Text>
+          <Text style={[styles.name, { fontSize: size * 0.12 }]} numberOfLines={1}>
+            {contactName}
+          </Text>
+        </View>
+      )}
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   wrap: { position: 'absolute' },
+  textContainer: {
+    position: 'absolute',
+    justifyContent: 'center',
+    alignItems: 'center',
+    top: 0,
+    left: 0,
+  },
+  initials: {
+    color: '#fff',
+    fontWeight: 'bold',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+    marginBottom: 4,
+  },
+  name: {
+    color: '#fff',
+    fontWeight: '600',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+    textAlign: 'center',
+    paddingHorizontal: 8,
+  },
 });
