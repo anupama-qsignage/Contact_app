@@ -234,12 +234,15 @@ export default function Contacts() {
     
     if (duration === 0) return MIN_SIZE;
     
-    // Normalize duration to 0-1 range (assuming maxDuration as reference)
-    // You can adjust maxDuration based on your data
-    const normalizedDuration = Math.min(duration / maxDuration, 1);
+    // Convert duration from seconds to minutes
+    const durationMinutes = duration / 60;
     
-    // Calculate size: MIN_SIZE + (normalizedDuration * (MAX_SIZE - MIN_SIZE))
-    return MIN_SIZE + (normalizedDuration * (MAX_SIZE - MIN_SIZE));
+    // Calculate size increase: 1 pixel per 20 minutes
+    // Formula: MIN_SIZE + (durationMinutes / 20)
+    // Cap at MAX_SIZE to prevent exceeding maximum
+    const calculatedSize = MIN_SIZE + (durationMinutes / 5);
+    
+    return Math.min(calculatedSize, MAX_SIZE);
   };
 
   const addContactToBubbles = async (contact: ExpoContacts.Contact) => {
