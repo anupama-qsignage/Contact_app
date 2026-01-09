@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ExpoContacts from 'expo-contacts';
 import { useFocusEffect } from 'expo-router';
@@ -491,10 +492,11 @@ export default function Contacts() {
       ))}
       
       <TouchableOpacity
-        style={styles.addButton}
+        style={styles.fab}
         onPress={handleAddContactPress}
+        activeOpacity={0.8}
       >
-        <Text style={styles.addButtonText}>+ Add Contact</Text>
+        <Ionicons name="add" size={32} color="#fff" />
       </TouchableOpacity>
 
       <Modal
@@ -674,24 +676,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  addButton: {
+  fab: {
     position: 'absolute',
     bottom: 30,
-    alignSelf: 'center',
+    right: 30,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: '#4A90E2',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 25,
-    elevation: 5,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-  },
-  addButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4.65,
   },
   modalContainer: {
     flex: 1,
