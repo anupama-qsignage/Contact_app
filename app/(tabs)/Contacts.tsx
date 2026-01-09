@@ -1,7 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ExpoContacts from 'expo-contacts';
+import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Dimensions, FlatList, Modal, PermissionsAndroid, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Dimensions, FlatList, Modal, PermissionsAndroid, Platform, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import CallLogs from 'react-native-call-log';
 import Bubble from '../bubble';
 
@@ -27,6 +28,12 @@ export default function Contacts() {
   const [loading, setLoading] = useState(true);
   const [permissionStatus, setPermissionStatus] = useState<'undetermined' | 'granted' | 'denied'>('undetermined');
   const [callLogs, setCallLogs] = useState<any[]>([]);
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [contactToDelete, setContactToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [maxLimitModalVisible, setMaxLimitModalVisible] = useState(false);
+  const [activeDeleteBubbleId, setActiveDeleteBubbleId] = useState<string | null>(null);
+  const deleteButtonTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const deleteButtonShowTimeRef = useRef<number | null>(null);
 
   const bubbleMapRef = useRef<Map<string, BubbleState>>(new Map());
   const syncMap = (arr: BubbleState[]) => {
@@ -64,9 +71,7 @@ export default function Contacts() {
 
   // Save bubbles to storage whenever they change
   useEffect(() => {
-    if (bubbles.length > 0 || selectedContactIds.size > 0) {
-      saveBubblesToStorage();
-    }
+    saveBubblesToStorage();
   }, [bubbles, selectedContactIds]);
 
   useEffect(() => {
@@ -245,6 +250,19 @@ export default function Contacts() {
     return Math.min(calculatedSize, MAX_SIZE);
   };
 
+  const handleAddContactPress = () => {
+    // Check if maximum limit reached (7 bubbles) before opening modal
+    if (bubbles.length >= 7) {
+      setMaxLimitModalVisible(true);
+      return;
+    }
+    setShowModal(true);
+  };
+
+  const closeMaxLimitModal = () => {
+    setMaxLimitModalVisible(false);
+  };
+
   const addContactToBubbles = async (contact: ExpoContacts.Contact) => {
     // Calculate call duration for this contact first
     const duration = callLogs.length > 0 
@@ -285,6 +303,77 @@ export default function Contacts() {
       updated.delete(contactId);
       return updated;
     });
+    // Storage will be saved automatically by the useEffect hook when bubbles/selectedContactIds change
+  };
+
+  const hideDeleteButton = useCallback(() => {
+    setActiveDeleteBubbleId(null);
+    deleteButtonShowTimeRef.current = null;
+    if (deleteButtonTimeoutRef.current) {
+      clearTimeout(deleteButtonTimeoutRef.current);
+      deleteButtonTimeoutRef.current = null;
+    }
+  }, []);
+
+  const showDeleteButtonForBubble = useCallback((bubbleId: string) => {
+    // Hide any previously active delete button
+    hideDeleteButton();
+    
+    // Set the new active bubble
+    setActiveDeleteBubbleId(bubbleId);
+    deleteButtonShowTimeRef.current = Date.now();
+    
+    // Auto-hide after 5 seconds
+    deleteButtonTimeoutRef.current = setTimeout(() => {
+      hideDeleteButton();
+    }, 5000);
+  }, [hideDeleteButton]);
+
+  // Hide delete button when navigating away
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        hideDeleteButton();
+      };
+    }, [hideDeleteButton])
+  );
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (deleteButtonTimeoutRef.current) {
+        clearTimeout(deleteButtonTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleDeleteBubble = (contactId: string) => {
+    const bubble = bubbles.find(b => b.contactId === contactId);
+    const contactName = bubble?.contactName || 'Unknown';
+    setContactToDelete({ id: contactId, name: contactName });
+    setDeleteModalVisible(true);
+    hideDeleteButton(); // Hide delete button when opening delete modal
+  };
+
+  const confirmDelete = () => {
+    if (contactToDelete) {
+      removeBubble(contactToDelete.id);
+      setDeleteModalVisible(false);
+      setContactToDelete(null);
+    }
+  };
+
+  const cancelDelete = () => {
+    setDeleteModalVisible(false);
+    setContactToDelete(null);
+  };
+
+  const handleScreenTap = () => {
+    // Only hide if delete button has been shown for at least 100ms
+    // This prevents accidental hiding when the delete button first appears
+    if (deleteButtonShowTimeRef.current && Date.now() - deleteButtonShowTimeRef.current > 100) {
+      hideDeleteButton();
+    }
   };
 
   const canMoveTo = (id: string, x: number, y: number) => {
@@ -355,7 +444,10 @@ export default function Contacts() {
   };
 
   return (
-    <View style={styles.container}>
+    <Pressable 
+      style={styles.container}
+      onPress={handleScreenTap}
+    >
       <TouchableOpacity
         style={styles.clearButton}
         onPress={clearStorage}
@@ -374,12 +466,15 @@ export default function Contacts() {
           canMoveTo={canMoveTo}
           contactName={b.contactName}
           callDuration={b.callDuration}
+          onDelete={() => handleDeleteBubble(b.contactId)}
+          onDeleteButtonShow={() => showDeleteButtonForBubble(b.id)}
+          hideDeleteButton={activeDeleteBubbleId !== b.id}
         />
       ))}
       
       <TouchableOpacity
         style={styles.addButton}
-        onPress={() => setShowModal(true)}
+        onPress={handleAddContactPress}
       >
         <Text style={styles.addButtonText}>+ Add Contact</Text>
       </TouchableOpacity>
@@ -426,7 +521,88 @@ export default function Contacts() {
           )}
         </View>
       </Modal>
-    </View>
+
+      {/* Custom Delete Confirmation Modal */}
+      <Modal
+        visible={deleteModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={cancelDelete}
+      >
+        <View style={styles.deleteModalOverlay}>
+          <View style={styles.deleteModalContent}>
+            <View style={styles.deleteModalHeader}>
+              <Text style={styles.deleteModalTitle}>Delete Contact</Text>
+            </View>
+            
+            <View style={styles.deleteModalBody}>
+              <Text style={styles.deleteModalMessage}>
+                Are you sure you want to remove
+              </Text>
+              <Text style={styles.deleteModalContactName}>
+                {contactToDelete?.name || 'this contact'}
+              </Text>
+              <Text style={styles.deleteModalMessage}>
+                from your MY7?
+              </Text>
+            </View>
+
+            <View style={styles.deleteModalButtons}>
+              <TouchableOpacity
+                style={[styles.deleteModalButton, styles.deleteModalCancelButton]}
+                onPress={cancelDelete}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.deleteModalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[styles.deleteModalButton, styles.deleteModalConfirmButton]}
+                onPress={confirmDelete}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.deleteModalConfirmText}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Maximum Limit Reached Modal */}
+      <Modal
+        visible={maxLimitModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={closeMaxLimitModal}
+      >
+        <View style={styles.deleteModalOverlay}>
+          <View style={styles.deleteModalContent}>
+            <View style={styles.deleteModalHeader}>
+              <Text style={styles.deleteModalTitle}>Maximum Limit Reached</Text>
+            </View>
+            
+            <View style={styles.deleteModalBody}>
+              <Text style={styles.deleteModalMessage}>
+                You can only add up to 7 contacts.
+              </Text>
+              <Text style={styles.deleteModalMessage}>
+                Please remove a contact first to add a new one.
+              </Text>
+            </View>
+
+            <View style={styles.deleteModalButtons}>
+              <TouchableOpacity
+                style={[styles.deleteModalButton, styles.deleteModalConfirmButton]}
+                onPress={closeMaxLimitModal}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.deleteModalConfirmText}>OK</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </Pressable>
   );
 }
 
@@ -576,5 +752,82 @@ const styles = StyleSheet.create({
   retryButtonText: {
     color: '#fff',
     fontWeight: '600',
+  },
+  // Delete Modal Styles
+  deleteModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  deleteModalContent: {
+    backgroundColor: '#ffff',
+    borderRadius: 20,
+    width: '85%',
+    maxWidth: 400,
+    overflow: 'hidden',
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  deleteModalHeader: {
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    backgroundColor: '#f8f8f8',
+  },
+  deleteModalTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#333',
+    textAlign: 'center',
+  },
+  deleteModalBody: {
+    padding: 30,
+    alignItems: 'center',
+  },
+  deleteModalMessage: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  deleteModalContactName: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#4D6970',
+    marginVertical: 8,
+    textAlign: 'center',
+  },
+  deleteModalButtons: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+  },
+  deleteModalButton: {
+    flex: 1,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteModalCancelButton: {
+    borderRightWidth: 1,
+    borderRightColor: '#e0e0e0',
+    backgroundColor: '#f8f8f8',
+  },
+  deleteModalCancelText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: '600',
+  },
+  deleteModalConfirmButton: {
+    backgroundColor: '#ff4444',
+  },
+  deleteModalConfirmText: {
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: 'bold',
   },
 });

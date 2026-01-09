@@ -1,6 +1,6 @@
 import { BlurMask, Canvas, Circle, Group, RadialGradient, vec } from '@shopify/react-native-skia';
-import React, { useRef } from 'react';
-import { Animated, PanResponder, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, PanResponder, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 type Props = {
   id: string;
@@ -12,6 +12,9 @@ type Props = {
   canMoveTo?: (id: string, x: number, y: number) => boolean;
   contactName?: string;
   callDuration?: number; // Total call duration in seconds
+  onDelete?: () => void;
+  onDeleteButtonShow?: () => void; // Callback when delete button is shown
+  hideDeleteButton?: boolean; // Parent can force hide the delete button
 };
 
 export default function Bubble({
@@ -24,8 +27,22 @@ export default function Bubble({
   canMoveTo,
   contactName,
   callDuration = 0,
+  onDelete,
+  onDeleteButtonShow,
+  hideDeleteButton = false,
 }: Props) {
   const half = size / 2;
+  const [showDeleteButton, setShowDeleteButton] = useState(false);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isLongPressActive = useRef(false);
+
+  // Hide delete button when parent requests it
+  useEffect(() => {
+    if (hideDeleteButton) {
+      setShowDeleteButton(false);
+      isLongPressActive.current = false;
+    }
+  }, [hideDeleteButton]);
 
   // We store the "base" absolute offset separately so we can compute candidates quickly.
   const baseX = useRef(startX);
@@ -48,15 +65,45 @@ export default function Bubble({
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onPanResponderGrant: () => {
-        // Nothing special; we move in absolute coords directly.
+        isLongPressActive.current = false;
+        // Start long press timer (1 second = 1000ms)
+        longPressTimer.current = setTimeout(() => {
+          isLongPressActive.current = true;
+          setShowDeleteButton(true);
+          if (onDeleteButtonShow) {
+            onDeleteButtonShow();
+          }
+        }, 600);
       },
       onPanResponderMove: (_, gesture) => {
+        // If user moves significantly, cancel long press
+        if (Math.abs(gesture.dx) > 5 || Math.abs(gesture.dy) > 5) {
+          if (longPressTimer.current) {
+            clearTimeout(longPressTimer.current);
+            longPressTimer.current = null;
+          }
+          isLongPressActive.current = false;
+          setShowDeleteButton(false);
+        }
+        
         const candX = baseX.current + gesture.dx;
         const candY = baseY.current + gesture.dy;
         // Only update if no overlap
         tryMoveTo(candX, candY);
       },
       onPanResponderRelease: (_, gesture) => {
+        // Clear long press timer on release
+        if (longPressTimer.current) {
+          clearTimeout(longPressTimer.current);
+          longPressTimer.current = null;
+        }
+        
+        // If delete button is showing and user didn't move much, don't update position
+        // This allows the delete button to be clickable
+        if (isLongPressActive.current && Math.abs(gesture.dx) < 5 && Math.abs(gesture.dy) < 5) {
+          return;
+        }
+        
         // Finalize position; if last move was blocked, keep previous allowed pos
         const candX = baseX.current + gesture.dx;
         const candY = baseY.current + gesture.dy;
@@ -157,6 +204,24 @@ export default function Bubble({
           </Text>
         </View>
       )}
+      {showDeleteButton && !hideDeleteButton && onDelete && (
+        <TouchableOpacity
+          style={[styles.deleteButton, { 
+            top: -size * 0.1, 
+            right: -size * 0.1,
+            width: size * 0.25,
+            height: size * 0.25,
+            borderRadius: size * 0.125,
+          }]}
+          onPress={() => {
+            setShowDeleteButton(false);
+            onDelete();
+          }}
+          activeOpacity={0.7}
+        >
+          <Text style={[styles.deleteButtonText, { fontSize: size * 0.15 }]}>×</Text>
+        </TouchableOpacity>
+      )}
     </Animated.View>
   );
 }
@@ -189,5 +254,22 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
     opacity: 0.9,
+  },
+  deleteButton: {
+    position: 'absolute',
+    backgroundColor: '#ff4444',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    zIndex: 1000,
+  },
+  deleteButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    lineHeight: 1,
   },
 });
