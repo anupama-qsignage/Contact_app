@@ -61,12 +61,12 @@ export default function Contacts() {
     };
   };
 
-  const generateRandomSize = (): number => {
-    return 80 + Math.random() * 80; // Between 80 and 160
+  const getBubbleSize = (): number => {
+    return 120; // Fixed size for all bubbles
   };
 
   const addContactToBubbles = (contact: ExpoContacts.Contact) => {
-    const size = generateRandomSize();
+    const size = getBubbleSize();
     const position = generateRandomPosition(size);
     const contactId = (contact as any).id || `contact-${Date.now()}`;
     const bubbleId = `bubble-${contactId}-${Date.now()}`;
