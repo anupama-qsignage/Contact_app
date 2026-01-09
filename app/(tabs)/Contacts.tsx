@@ -1,7 +1,12 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ExpoContacts from 'expo-contacts';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Dimensions, FlatList, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Dimensions, FlatList, Modal, PermissionsAndroid, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import CallLogs from 'react-native-call-log';
 import Bubble from '../bubble';
+
+const STORAGE_KEY = 'contact_bubbles';
+const SELECTED_CONTACTS_KEY = 'selected_contact_ids';
 
 type BubbleState = { 
   id: string; 
@@ -10,6 +15,7 @@ type BubbleState = {
   y: number;
   contactId: string;
   contactName: string;
+  callDuration: number; // Total call duration in seconds
 };
 
 export default function Contacts() {
@@ -20,6 +26,7 @@ export default function Contacts() {
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [permissionStatus, setPermissionStatus] = useState<'undetermined' | 'granted' | 'denied'>('undetermined');
+  const [callLogs, setCallLogs] = useState<any[]>([]);
 
   const bubbleMapRef = useRef<Map<string, BubbleState>>(new Map());
   const syncMap = (arr: BubbleState[]) => {
@@ -48,9 +55,159 @@ export default function Contacts() {
     }
   }, []);
 
+  // Load bubbles from storage on mount
   useEffect(() => {
+    loadBubblesFromStorage();
     loadContacts();
+    loadCallLogsForBubbles();
   }, [loadContacts]);
+
+  // Save bubbles to storage whenever they change
+  useEffect(() => {
+    if (bubbles.length > 0 || selectedContactIds.size > 0) {
+      saveBubblesToStorage();
+    }
+  }, [bubbles, selectedContactIds]);
+
+  useEffect(() => {
+    if (callLogs.length > 0 && bubbles.length > 0) {
+      updateBubbleDurations(callLogs);
+    }
+  }, [callLogs, allContacts]);
+
+  const saveBubblesToStorage = async () => {
+    try {
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(bubbles));
+      await AsyncStorage.setItem(SELECTED_CONTACTS_KEY, JSON.stringify(Array.from(selectedContactIds)));
+    } catch (error) {
+      console.error('Error saving bubbles to storage:', error);
+    }
+  };
+
+  const loadBubblesFromStorage = async () => {
+    try {
+      const savedBubbles = await AsyncStorage.getItem(STORAGE_KEY);
+      const savedContactIds = await AsyncStorage.getItem(SELECTED_CONTACTS_KEY);
+      
+      if (savedBubbles) {
+        const parsedBubbles = JSON.parse(savedBubbles);
+        setBubbles(parsedBubbles);
+        syncMap(parsedBubbles);
+      }
+      
+      if (savedContactIds) {
+        const parsedIds = JSON.parse(savedContactIds);
+        setSelectedContactIds(new Set(parsedIds));
+      }
+    } catch (error) {
+      console.error('Error loading bubbles from storage:', error);
+    }
+  };
+
+  const clearStorage = async () => {
+    Alert.alert(
+      'Clear All Bubbles',
+      'Are you sure you want to remove all bubbles? This action cannot be undone.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await AsyncStorage.removeItem(STORAGE_KEY);
+              await AsyncStorage.removeItem(SELECTED_CONTACTS_KEY);
+              setBubbles([]);
+              setSelectedContactIds(new Set());
+              syncMap([]);
+            } catch (error) {
+              console.error('Error clearing storage:', error);
+              Alert.alert('Error', 'Failed to clear storage.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const loadCallLogsForBubbles = async () => {
+    if (Platform.OS !== 'android') return;
+    
+    try {
+      const checkResult = await PermissionsAndroid.check(
+        PermissionsAndroid.PERMISSIONS.READ_CALL_LOG
+      );
+
+      if (!checkResult) {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.READ_CALL_LOG,
+          {
+            title: 'Call Log Permission',
+            message: 'This app needs access to your call logs to display call duration.',
+            buttonNeutral: 'Ask Me Later',
+            buttonNegative: 'Cancel',
+            buttonPositive: 'OK',
+          }
+        );
+        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+          return;
+        }
+      }
+
+      const logs = await CallLogs.load(500);
+      setCallLogs(logs);
+      updateBubbleDurations(logs);
+    } catch (error) {
+      console.error('Error loading call logs:', error);
+    }
+  };
+
+  const normalizePhoneNumber = (phoneNumber: string): string => {
+    if (!phoneNumber) return '';
+    return phoneNumber.replace(/[\s\-\(\)]/g, '').slice(-10);
+  };
+
+  const findCallDurationForContact = (contact: ExpoContacts.Contact, logs: any[]): number => {
+    if (!contact.phoneNumbers || contact.phoneNumbers.length === 0) return 0;
+    
+    let totalDuration = 0;
+    const contactPhoneNumbers = contact.phoneNumbers
+      .map(p => p.number)
+      .filter((num): num is string => Boolean(num))
+      .map(normalizePhoneNumber);
+
+    for (const log of logs) {
+      if (!log.phoneNumber) continue;
+      const logNumber = normalizePhoneNumber(log.phoneNumber);
+      
+      for (const contactNumber of contactPhoneNumbers) {
+        if (logNumber === contactNumber || 
+            logNumber.slice(-10) === contactNumber.slice(-10) ||
+            contactNumber.slice(-10) === logNumber.slice(-10)) {
+          totalDuration += log.duration || 0;
+          break;
+        }
+      }
+    }
+    
+    return totalDuration;
+  };
+
+  const updateBubbleDurations = (logs: any[]) => {
+    setBubbles(prev => {
+      return prev.map(bubble => {
+        const contact = allContacts.find(c => (c as any).id === bubble.contactId);
+        if (contact) {
+          const duration = findCallDurationForContact(contact, logs);
+          return { ...bubble, callDuration: duration };
+        }
+        return bubble;
+      });
+    });
+  };
 
   const generateRandomPosition = (size: number): { x: number; y: number } => {
     const maxX = width - size;
@@ -65,11 +222,16 @@ export default function Contacts() {
     return 120; // Fixed size for all bubbles
   };
 
-  const addContactToBubbles = (contact: ExpoContacts.Contact) => {
+  const addContactToBubbles = async (contact: ExpoContacts.Contact) => {
     const size = getBubbleSize();
     const position = generateRandomPosition(size);
     const contactId = (contact as any).id || `contact-${Date.now()}`;
     const bubbleId = `bubble-${contactId}-${Date.now()}`;
+    
+    // Calculate call duration for this contact
+    const duration = callLogs.length > 0 
+      ? findCallDurationForContact(contact, callLogs)
+      : 0;
     
     const newBubble: BubbleState = {
       id: bubbleId,
@@ -78,6 +240,7 @@ export default function Contacts() {
       y: position.y,
       contactId: contactId,
       contactName: contact.name || 'Unknown',
+      callDuration: duration,
     };
 
     setBubbles(prev => {
@@ -170,6 +333,13 @@ export default function Contacts() {
 
   return (
     <View style={styles.container}>
+      <TouchableOpacity
+        style={styles.clearButton}
+        onPress={clearStorage}
+      >
+        <Text style={styles.clearButtonText}>Clear All</Text>
+      </TouchableOpacity>
+      
       {bubbles.map(b => (
         <Bubble
           key={b.id}
@@ -180,6 +350,7 @@ export default function Contacts() {
           onChange={onChange}
           canMoveTo={canMoveTo}
           contactName={b.contactName}
+          callDuration={b.callDuration}
         />
       ))}
       
@@ -240,6 +411,26 @@ const styles = StyleSheet.create({
   container: { 
     flex: 1, 
     backgroundColor: '#0b0f1a' 
+  },
+  clearButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    backgroundColor: '#ff4444',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    zIndex: 1000,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  clearButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   addButton: {
     position: 'absolute',

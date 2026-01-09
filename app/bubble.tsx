@@ -11,6 +11,7 @@ type Props = {
   onChange?: (id: string, x: number, y: number) => void;
   canMoveTo?: (id: string, x: number, y: number) => boolean;
   contactName?: string;
+  callDuration?: number; // Total call duration in seconds
 };
 
 export default function Bubble({
@@ -22,6 +23,7 @@ export default function Bubble({
   onChange,
   canMoveTo,
   contactName,
+  callDuration = 0,
 }: Props) {
   const half = size / 2;
 
@@ -83,8 +85,28 @@ export default function Bubble({
     return name.substring(0, 2).toUpperCase();
   };
 
+  const formatDuration = (seconds: number): string => {
+    if (seconds === 0) return 'No calls';
+    if (seconds < 60) {
+      return `${seconds}s`;
+    } else if (seconds < 3600) {
+      const minutes = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      return secs > 0 ? `${minutes}m ${secs}s` : `${minutes}m`;
+    } else {
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      const secs = seconds % 60;
+      if (minutes > 0) {
+        return secs > 0 ? `${hours}h ${minutes}m ${secs}s` : `${hours}h ${minutes}m`;
+      }
+      return secs > 0 ? `${hours}h ${secs}s` : `${hours}h`;
+    }
+  };
+
   const fontSize = size * 0.25;
   const initials = contactName ? getInitials(contactName) : '';
+  const durationText = formatDuration(callDuration);
 
   return (
     <Animated.View
@@ -142,6 +164,9 @@ export default function Bubble({
           <Text style={[styles.name, { fontSize: size * 0.12 }]} numberOfLines={1}>
             {contactName}
           </Text>
+          <Text style={[styles.duration, { fontSize: size * 0.09 }]}>
+            {durationText}
+          </Text>
         </View>
       )}
     </Animated.View>
@@ -173,5 +198,16 @@ const styles = StyleSheet.create({
     textShadowRadius: 2,
     textAlign: 'center',
     paddingHorizontal: 8,
+    marginTop: 2,
+  },
+  duration: {
+    color: '#fff',
+    fontWeight: '500',
+    textShadowColor: 'rgba(0, 0, 0, 0.4)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+    textAlign: 'center',
+    marginTop: 4,
+    opacity: 0.9,
   },
 });
