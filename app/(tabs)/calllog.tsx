@@ -1,10 +1,27 @@
+import * as Contacts from 'expo-contacts';
 import React, { useEffect, useState } from 'react';
-import { Alert, PermissionsAndroid, Platform, StyleSheet, Text, View } from 'react-native';
+import { Alert, FlatList, PermissionsAndroid, Platform, StyleSheet, Text, View } from 'react-native';
 import CallLogs from 'react-native-call-log';
+
+interface CallLogEntry {
+  phoneNumber: string;
+  name?: string;
+  type: string;
+  duration: number;
+  dateTime: number;
+}
+
+interface AggregatedCallLog {
+  phoneNumber: string;
+  name: string | null;
+  callCount: number;
+  totalDuration: number;
+}
 
 export default function CallLog() {
   const [permissionStatus, setPermissionStatus] = useState<string>('checking');
-  const [callLogs, setCallLogs] = useState<any[]>([]);
+  const [aggregatedLogs, setAggregatedLogs] = useState<AggregatedCallLog[]>([]);
+  const [contacts, setContacts] = useState<Contacts.Contact[]>([]);
 
   useEffect(() => {
     const requestCallLogPermission = async () => {
@@ -65,11 +82,112 @@ export default function CallLog() {
       }
     };
 
+    const loadContacts = async () => {
+      try {
+        const { status } = await Contacts.requestPermissionsAsync();
+        if (status === 'granted') {
+          const { data } = await Contacts.getContactsAsync({
+            fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers],
+          });
+          setContacts(data || []);
+          return data || [];
+        }
+        return [];
+      } catch (error) {
+        console.error('Error loading contacts:', error);
+        return [];
+      }
+    };
+
+    const findContactName = (phoneNumber: string, contactList: Contacts.Contact[]): string | null => {
+      if (!phoneNumber) return null;
+      
+      // Normalize phone number (remove spaces, dashes, etc.)
+      const normalizedNumber = phoneNumber.replace(/[\s\-\(\)]/g, '');
+      
+      for (const contact of contactList) {
+        if (contact.phoneNumbers) {
+          for (const phone of contact.phoneNumbers) {
+            if (!phone.number) continue;
+            const normalizedContactNumber = phone.number.replace(/[\s\-\(\)]/g, '');
+            // Check if numbers match (exact or last 10 digits)
+            if (
+              normalizedContactNumber === normalizedNumber ||
+              normalizedContactNumber.slice(-10) === normalizedNumber.slice(-10) ||
+              normalizedNumber.slice(-10) === normalizedContactNumber.slice(-10)
+            ) {
+              return contact.name || null;
+            }
+          }
+        }
+      }
+      return null;
+    };
+
+    const normalizePhoneNumber = (phoneNumber: string): string => {
+      if (!phoneNumber) return '';
+      // Normalize phone number (remove spaces, dashes, etc.) and take last 10 digits
+      const normalized = phoneNumber.replace(/[\s\-\(\)]/g, '');
+      return normalized.slice(-10); // Use last 10 digits for grouping
+    };
+
     const loadCallLogs = async () => {
       try {
-        const logs = await CallLogs.load(5);
-        console.log('Call logs loaded:', logs);
-        setCallLogs(logs);
+        // Load up to 100 call logs (you can increase this number if needed)
+        const logs = await CallLogs.load(500);
+        // console.log('Call logs loaded:', logs);
+        
+        // Load contacts to match names
+        const contactList = await loadContacts();
+        
+        // Group call logs by phone number
+        const groupedMap = new Map<string, {
+          phoneNumber: string;
+          name: string | null;
+          callCount: number;
+          totalDuration: number;
+        }>();
+        
+        logs.forEach((log: any) => {
+          if (!log.phoneNumber) return;
+          
+          const normalizedNumber = normalizePhoneNumber(log.phoneNumber);
+          if (!normalizedNumber) return;
+          
+          // Use normalized number as key to group same numbers with different formats
+          const key = normalizedNumber;
+          
+          // Find contact name for this number
+          const contactName = findContactName(log.phoneNumber, contactList) || log.name || null;
+          
+          if (groupedMap.has(key)) {
+            const existing = groupedMap.get(key)!;
+            existing.callCount += 1;
+            existing.totalDuration += log.duration || 0;
+            // Keep the first phone number format found, or update if we have a better formatted one
+            if (!existing.phoneNumber || (log.phoneNumber && log.phoneNumber.length > existing.phoneNumber.length)) {
+              existing.phoneNumber = log.phoneNumber;
+            }
+            // Update name if we found one and didn't have one before
+            if (!existing.name && contactName) {
+              existing.name = contactName;
+            }
+          } else {
+            groupedMap.set(key, {
+              phoneNumber: log.phoneNumber,
+              name: contactName,
+              callCount: 1,
+              totalDuration: log.duration || 0,
+            });
+          }
+        });
+        
+        // Convert map to array and sort by total duration (descending)
+        const aggregated = Array.from(groupedMap.values()).sort(
+          (a, b) => b.totalDuration - a.totalDuration
+        );
+        
+        setAggregatedLogs(aggregated);
       } catch (error) {
         console.error('Error loading call logs:', error);
       }
@@ -77,6 +195,24 @@ export default function CallLog() {
 
     requestCallLogPermission();
   }, []);
+
+  const formatDuration = (seconds: number): string => {
+    if (seconds < 60) {
+      return `${seconds}s`;
+    } else if (seconds < 3600) {
+      const minutes = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      return secs > 0 ? `${minutes}m ${secs}s` : `${minutes}m`;
+    } else {
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      const secs = seconds % 60;
+      if (minutes > 0) {
+        return secs > 0 ? `${hours}h ${minutes}m ${secs}s` : `${hours}h ${minutes}m`;
+      }
+      return secs > 0 ? `${hours}h ${secs}s` : `${hours}h`;
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -86,18 +222,28 @@ export default function CallLog() {
       )}
       {permissionStatus === 'granted' && (
         <View style={styles.logsContainer}>
-          <Text style={styles.subtitle}>Recent Calls ({callLogs.length})</Text>
-          {callLogs.length === 0 ? (
+          <Text style={styles.subtitle}>Call Summary ({aggregatedLogs.length} contacts)</Text>
+          {aggregatedLogs.length === 0 ? (
             <Text style={styles.status}>No call logs found</Text>
           ) : (
-            callLogs.map((log, index) => (
-              <View key={index} style={styles.logItem}>
-                <Text style={styles.phoneNumber}>{log.phoneNumber || 'Unknown'}</Text>
-                <Text style={styles.logDetails}>
-                  Type: {log.type} | Duration: {log.duration}s
-                </Text>
-              </View>
-            ))
+            <FlatList
+              data={aggregatedLogs}
+              keyExtractor={(item, index) => `${item.phoneNumber}-${index}`}
+              renderItem={({ item: log }) => (
+                <View style={styles.logItem}>
+                  <Text style={styles.contactName}>
+                    {log.name || log.phoneNumber || 'Unknown'}
+                  </Text>
+                  {log.name && log.phoneNumber && (
+                    <Text style={styles.phoneNumber}>{log.phoneNumber}</Text>
+                  )}
+                  <Text style={styles.logDetails}>
+                    Calls: {log.callCount} | Total Duration: {formatDuration(log.totalDuration)}
+                  </Text>
+                </View>
+              )}
+              contentContainerStyle={styles.listContent}
+            />
           )}
         </View>
       )}
@@ -138,7 +284,11 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   logsContainer: {
+    flex: 1,
     marginTop: 8,
+  },
+  listContent: {
+    paddingBottom: 20,
   },
   logItem: {
     backgroundColor: '#f5f5f5',
@@ -146,13 +296,21 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 8,
   },
-  phoneNumber: {
-    fontSize: 16,
+  contactName: {
+    fontSize: 18,
     fontWeight: '600',
     marginBottom: 4,
+    color: '#000',
+  },
+  phoneNumber: {
+    fontSize: 14,
+    fontWeight: '400',
+    marginBottom: 4,
+    color: '#666',
   },
   logDetails: {
     fontSize: 12,
     color: '#666',
   },
 });
+
