@@ -76,15 +76,6 @@ export default function Bubble({
     })
   ).current;
 
-  const getInitials = (name: string | undefined): string => {
-    if (!name) return '';
-    const parts = name.trim().split(' ');
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-    }
-    return name.substring(0, 2).toUpperCase();
-  };
-
   const formatDuration = (seconds: number): string => {
     if (seconds === 0) return 'No calls';
     if (seconds < 60) {
@@ -104,8 +95,6 @@ export default function Bubble({
     }
   };
 
-  const fontSize = size * 0.25;
-  const initials = contactName ? getInitials(contactName) : '';
   const durationText = formatDuration(callDuration);
 
   return (
@@ -160,11 +149,10 @@ export default function Bubble({
       </Canvas>
       {contactName && (
         <View style={[styles.textContainer, { width: size, height: size }]}>
-          <Text style={[styles.initials, { fontSize }]}>{initials}</Text>
-          <Text style={[styles.name, { fontSize: size * 0.12 }]} numberOfLines={1}>
+          <Text style={[styles.name, { fontSize: size * 0.14 }]} numberOfLines={1}>
             {contactName}
           </Text>
-          <Text style={[styles.duration, { fontSize: size * 0.09 }]}>
+          <Text style={[styles.duration, { fontSize: size * 0.1 }]}>
             {durationText}
           </Text>
         </View>
@@ -182,14 +170,6 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
   },
-  initials: {
-    color: '#fff',
-    fontWeight: 'bold',
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-    marginBottom: 4,
-  },
   name: {
     color: '#fff',
     fontWeight: '600',
@@ -198,7 +178,7 @@ const styles = StyleSheet.create({
     textShadowRadius: 2,
     textAlign: 'center',
     paddingHorizontal: 8,
-    marginTop: 2,
+    marginBottom: 6,
   },
   duration: {
     color: '#fff',

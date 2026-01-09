@@ -197,12 +197,22 @@ export default function Contacts() {
   };
 
   const updateBubbleDurations = (logs: any[]) => {
+    // Find max duration for normalization
+    const maxDuration = logs.length > 0
+      ? Math.max(...logs.map(log => log.duration || 0))
+      : 3600;
+    
     setBubbles(prev => {
       return prev.map(bubble => {
         const contact = allContacts.find(c => (c as any).id === bubble.contactId);
         if (contact) {
           const duration = findCallDurationForContact(contact, logs);
-          return { ...bubble, callDuration: duration };
+          const newSize = getBubbleSize(duration, maxDuration);
+          return { 
+            ...bubble, 
+            callDuration: duration,
+            size: newSize // Update size based on new duration
+          };
         }
         return bubble;
       });
@@ -218,20 +228,35 @@ export default function Contacts() {
     };
   };
 
-  const getBubbleSize = (): number => {
-    return 120; // Fixed size for all bubbles
+  const getBubbleSize = (duration: number, maxDuration: number = 3600): number => {
+    const MIN_SIZE = 80;
+    const MAX_SIZE = 240;
+    
+    if (duration === 0) return MIN_SIZE;
+    
+    // Normalize duration to 0-1 range (assuming maxDuration as reference)
+    // You can adjust maxDuration based on your data
+    const normalizedDuration = Math.min(duration / maxDuration, 1);
+    
+    // Calculate size: MIN_SIZE + (normalizedDuration * (MAX_SIZE - MIN_SIZE))
+    return MIN_SIZE + (normalizedDuration * (MAX_SIZE - MIN_SIZE));
   };
 
   const addContactToBubbles = async (contact: ExpoContacts.Contact) => {
-    const size = getBubbleSize();
-    const position = generateRandomPosition(size);
-    const contactId = (contact as any).id || `contact-${Date.now()}`;
-    const bubbleId = `bubble-${contactId}-${Date.now()}`;
-    
-    // Calculate call duration for this contact
+    // Calculate call duration for this contact first
     const duration = callLogs.length > 0 
       ? findCallDurationForContact(contact, callLogs)
       : 0;
+    
+    // Find max duration from all call logs to normalize
+    const maxDuration = callLogs.length > 0
+      ? Math.max(...callLogs.map(log => log.duration || 0))
+      : 3600; // Default max if no logs
+    
+    const size = getBubbleSize(duration, maxDuration);
+    const position = generateRandomPosition(size);
+    const contactId = (contact as any).id || `contact-${Date.now()}`;
+    const bubbleId = `bubble-${contactId}-${Date.now()}`;
     
     const newBubble: BubbleState = {
       id: bubbleId,
